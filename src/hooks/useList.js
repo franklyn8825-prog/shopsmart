@@ -15,6 +15,16 @@ export function useList(user, listeId) {
   useEffect(() => {
     if (user && isSupabaseConfigured && listeId) {
       loadFromSupabase(listeId)
+
+      const channel = supabase
+        .channel(`liste-${listeId}`)
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'liste_items',
+          filter: `liste_id=eq.${listeId}`,
+        }, () => loadFromSupabase(listeId))
+        .subscribe()
+
+      return () => supabase.removeChannel(channel)
     } else if (!user) {
       loadFromLocalStorage()
     } else {

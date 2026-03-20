@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, BookMarked, Archive, Copy, Pencil, Check, X,
-  ShoppingCart, Star, StarOff, ChevronRight, User, LogOut
+  ShoppingCart, Star, StarOff, ChevronRight, User, LogOut, Share2, Users
 } from 'lucide-react'
 import { useListes } from '../hooks/useListes'
 import { supabase } from '../lib/supabase'
@@ -12,14 +12,25 @@ function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
-function ListeItem({ liste, onSelect, onDupliquer, onArchiver, onRenommer, onToggleTemplate }) {
+function ListeItem({ liste, onSelect, onDupliquer, onArchiver, onRenommer, onToggleTemplate, onPartager }) {
   const [editing, setEditing] = useState(false)
   const [nom, setNom] = useState(liste.nom)
   const [showActions, setShowActions] = useState(false)
+  const [showShare, setShowShare] = useState(false)
+  const [shareEmail, setShareEmail] = useState('')
+  const [shareStatus, setShareStatus] = useState(null)
 
   function handleRename() {
     if (nom.trim() && nom !== liste.nom) onRenommer(liste.id, nom.trim())
     setEditing(false)
+  }
+
+  async function handleShare() {
+    if (!shareEmail.trim()) return
+    setShareStatus('loading')
+    const ok = await onPartager(liste.id, shareEmail)
+    setShareStatus(ok ? 'ok' : 'error')
+    if (ok) { setTimeout(() => { setShowShare(false); setShareEmail(''); setShareStatus(null) }, 1500) }
   }
 
   const count = liste.liste_items?.[0]?.count || 0
@@ -38,12 +49,14 @@ function ListeItem({ liste, onSelect, onDupliquer, onArchiver, onRenommer, onTog
         {/* Icône */}
         <div style={{
           width: '42px', height: '42px', borderRadius: '12px', flexShrink: 0,
-          backgroundColor: liste.is_template ? '#fef9c3' : 'var(--color-primary-light)',
+          backgroundColor: liste.is_template ? '#fef9c3' : liste.is_shared ? '#ede9fe' : 'var(--color-primary-light)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           {liste.is_template
             ? <Star size={20} color="#d97706" />
-            : <ShoppingCart size={20} color="var(--color-primary)" />
+            : liste.is_shared
+              ? <Users size={20} color="#7c3aed" />
+              : <ShoppingCart size={20} color="var(--color-primary)" />
           }
         </div>
 
@@ -97,6 +110,46 @@ function ListeItem({ liste, onSelect, onDupliquer, onArchiver, onRenommer, onTog
         </button>
       </div>
 
+      {/* Panneau partage */}
+      {showShare && (
+        <div style={{ borderTop: '1px solid #f3f4f6', padding: '12px 16px', backgroundColor: '#faf5ff' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed', marginBottom: '8px' }}>
+            Partager avec (email)
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              autoFocus
+              type="email"
+              value={shareEmail}
+              onChange={(e) => setShareEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleShare(); if (e.key === 'Escape') setShowShare(false) }}
+              placeholder="email@exemple.com"
+              style={{
+                flex: 1, padding: '9px 12px', fontSize: '14px',
+                border: '1.5px solid #ddd6fe', borderRadius: '10px', outline: 'none',
+                color: 'var(--color-text)',
+              }}
+            />
+            <button
+              onClick={handleShare}
+              disabled={shareStatus === 'loading'}
+              style={{
+                padding: '9px 14px', borderRadius: '10px', border: 'none',
+                backgroundColor: shareStatus === 'ok' ? '#16a34a' : '#7c3aed',
+                color: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px',
+              }}
+            >
+              {shareStatus === 'loading' ? '...' : shareStatus === 'ok' ? '✓' : 'Envoyer'}
+            </button>
+            <button onClick={() => setShowShare(false)} style={{ padding: '9px 12px', borderRadius: '10px', border: 'none', backgroundColor: '#f3f4f6', color: 'var(--color-muted)', cursor: 'pointer' }}>
+              <X size={16} />
+            </button>
+          </div>
+          {shareStatus === 'error' && <div style={{ fontSize: '12px', color: 'var(--color-promo)', marginTop: '6px' }}>Erreur — vérifie l'email</div>}
+          {shareStatus === 'ok' && <div style={{ fontSize: '12px', color: '#16a34a', marginTop: '6px' }}>Liste partagée !</div>}
+        </div>
+      )}
+
       {/* Actions expandables */}
       {showActions && (
         <div style={{
@@ -108,13 +161,14 @@ function ListeItem({ liste, onSelect, onDupliquer, onArchiver, onRenommer, onTog
           <ActionBtn icon={ShoppingCart} label="Ouvrir" color="var(--color-primary)" onClick={() => onSelect(liste)} />
           <ActionBtn icon={Copy} label="Dupliquer" color="#6366f1" onClick={() => onDupliquer(liste)} />
           <ActionBtn icon={Pencil} label="Renommer" color="#f59e0b" onClick={() => { setEditing(true); setShowActions(false) }} />
-          <ActionBtn
+          {!liste.is_shared && <ActionBtn icon={Share2} label="Partager" color="#7c3aed" onClick={() => { setShowShare(true); setShowActions(false) }} />}
+          {!liste.is_shared && <ActionBtn
             icon={liste.is_template ? StarOff : Star}
             label={liste.is_template ? 'Retirer modèle' : 'Définir modèle'}
             color="#d97706"
             onClick={() => onToggleTemplate(liste.id, !liste.is_template)}
-          />
-          <ActionBtn icon={Archive} label="Archiver" color="var(--color-promo)" onClick={() => onArchiver(liste.id)} />
+          />}
+          {!liste.is_shared && <ActionBtn icon={Archive} label="Archiver" color="var(--color-promo)" onClick={() => onArchiver(liste.id)} />}
         </div>
       )}
     </div>
@@ -141,7 +195,7 @@ function ActionBtn({ icon: Icon, label, color, onClick }) {
 
 export default function ListesScreen({ user, onSelectListe }) {
   const navigate = useNavigate()
-  const { listes, loading, creerListe, dupliquerListe, archiverListe, renommerListe, toggleTemplate } = useListes(user)
+  const { listes, loading, creerListe, dupliquerListe, archiverListe, renommerListe, toggleTemplate, partagerListe } = useListes(user)
   const [showNouvelle, setShowNouvelle] = useState(false)
   const [nomNouvelle, setNomNouvelle] = useState('')
 
@@ -257,6 +311,7 @@ export default function ListesScreen({ user, onSelectListe }) {
                 onArchiver={archiverListe}
                 onRenommer={renommerListe}
                 onToggleTemplate={toggleTemplate}
+                onPartager={partagerListe}
               />
             ))}
             <div style={{ height: '8px' }} />
@@ -280,6 +335,7 @@ export default function ListesScreen({ user, onSelectListe }) {
                 onArchiver={archiverListe}
                 onRenommer={renommerListe}
                 onToggleTemplate={toggleTemplate}
+                onPartager={partagerListe}
               />
             ))}
           </>

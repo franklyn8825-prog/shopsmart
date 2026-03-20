@@ -12,14 +12,33 @@ export function useListes(user) {
 
   async function loadListes() {
     setLoading(true)
-    const { data } = await supabase
+
+    // Mes listes
+    const { data: mesListes } = await supabase
       .from('listes')
       .select('*, liste_items(count)')
       .eq('user_id', user.id)
       .eq('archived', false)
       .order('is_template', { ascending: false })
       .order('created_at', { ascending: false })
-    setListes(data || [])
+
+    // Listes partagées avec moi
+    const { data: partages } = await supabase
+      .from('liste_partages')
+      .select('liste_id')
+
+    let listesPartagees = []
+    const sharedIds = (partages || []).map(p => p.liste_id)
+    if (sharedIds.length > 0) {
+      const { data } = await supabase
+        .from('listes')
+        .select('*, liste_items(count)')
+        .in('id', sharedIds)
+        .eq('archived', false)
+      listesPartagees = (data || []).map(l => ({ ...l, is_shared: true }))
+    }
+
+    setListes([...(mesListes || []), ...listesPartagees])
     setLoading(false)
   }
 
@@ -86,7 +105,14 @@ export function useListes(user) {
     setListes(prev => prev.map(l => l.id === listeId ? { ...l, is_template } : l))
   }, [])
 
-  return { listes, loading, creerListe, dupliquerListe, archiverListe, renommerListe, toggleTemplate, reload: loadListes }
+  const partagerListe = useCallback(async (listeId, email) => {
+    const { error } = await supabase
+      .from('liste_partages')
+      .insert({ liste_id: listeId, invited_email: email.trim().toLowerCase() })
+    return !error
+  }, [])
+
+  return { listes, loading, creerListe, dupliquerListe, archiverListe, renommerListe, toggleTemplate, partagerListe, reload: loadListes }
 }
 
 function getLundiSemaine() {
